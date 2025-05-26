@@ -2,49 +2,44 @@ name: Path-Based Merge Check
 
 on:
   pull_request:
-    branches: [develop]
+    branches:
+      - develop
 
 jobs:
   check-changes:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # Required to compare full history
-      
-      - name: Fetch base branch
-        run: git fetch origin develop
+          fetch-depth: 0
 
-      - name: Get changed files
-        id: files
+      - name: Check changed files based on team paths
         run: |
+          echo "🔍 Checking changes from branch: ${{ github.head_ref }}"
+          
+          # Get the list of changed files in the PR compared to develop
           CHANGED_FILES=$(git diff --name-only origin/develop...HEAD)
           echo "Changed files:"
           echo "$CHANGED_FILES"
-          echo "changed_files<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Enforce path rules
-        run: |
-          echo "Checking changes from branch: ${{ github.head_ref }}"
-          CHANGED_FILES="${{ steps.files.outputs.changed_files }}"
+          BRANCH_NAME="${{ github.head_ref }}"
 
-          # Check ai-agents rules
-          if [[ "${{ github.head_ref }}" == feature/ai-agents/* ]]; then
+          # If branch starts with feature/ai-agents/
+          if [[ "$BRANCH_NAME" == feature/ai-agents/* ]]; then
+            echo "🚧 Validating changes for AI-agents team"
             echo "$CHANGED_FILES" | grep -v '^ds/' | grep -q . && {
               echo "❌ AI-agents team can only modify files inside the 'ds/' folder."
               exit 1
             }
           fi
 
-          # Check api-service rules
-          if [[ "${{ github.head_ref }}" == feature/api-service/* ]]; then
+          # If branch starts with feature/api-service/
+          if [[ "$BRANCH_NAME" == feature/api-service/* ]]; then
+            echo "🚧 Validating changes for API-service team"
             echo "$CHANGED_FILES" | grep -v '^api/' | grep -q . && {
               echo "❌ API-service team can only modify files inside the 'api/' folder."
               exit 1
             }
           fi
 
-          echo "✅ Path-based check passed."
+          echo "✅ Path-based merge check passed."
