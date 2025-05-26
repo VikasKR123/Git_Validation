@@ -1,1 +1,2 @@
-print("model1_vikas")
+print("model0")
+
