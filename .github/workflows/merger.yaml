@@ -1,0 +1,35 @@
+name: Path-Based Merge Check
+on:
+  pull_request:
+    branches: [develop]
+
+jobs:
+  check-changes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: Check changed files
+        run: |
+          # Get changed files
+          CHANGED_FILES=$(git diff --name-only origin/develop...HEAD)
+          
+          # Check if PR is from ai-agents team
+          if [[ "${{ github.head_ref }}" == feature/ai-agents/* ]]; then
+            # Ensure only ds/ folder is modified
+            if echo "$CHANGED_FILES" | grep -v '^ds/' | grep -q .; then
+              echo "❌ AI-agents team can only modify ds/ folder"
+              exit 1
+            fi
+          fi
+          
+          # Check if PR is from api-service team
+          if [[ "${{ github.head_ref }}" == feature/api-service/* ]]; then
+            # Ensure only api/ folder is modified
+            if echo "$CHANGED_FILES" | grep -v '^api/' | grep -q .; then
+              echo "❌ API-service team can only modify api/ folder"
+              exit 1
+            fi
+          fi
