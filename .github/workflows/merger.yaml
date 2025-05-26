@@ -1,42 +1,5 @@
-# name: Path-Based Merge Check
-# on:
-#   pull_request:
-#     branches: develop
-
-# jobs:
-#   check-changes:
-#     runs-on: ubuntu-latest
-#     steps:
-#       - uses: actions/checkout@v3
-#         with:
-#           fetch-depth: 0
-      
-#       - name: Check changed files
-#         run: |
-#           # Get changed files
-#           CHANGED_FILES=$(git diff --name-only origin/develop...HEAD)
-          
-#           # Check if PR is from ai-agents team
-#           if [[ "${{ github.head_ref }}" == feature/ai-agents/* ]]; then
-#             # Ensure only ds/ folder is modified
-#             if echo "$CHANGED_FILES" | grep -v '^ds/' | grep -q .; then
-#               echo "❌ AI-agents team can only modify ds/ folder"
-#               exit 1
-#             fi
-#           fi
-          
-#           # Check if PR is from api-service team
-#           if [[ "${{ github.head_ref }}" == feature/api-service/* ]]; then
-#             # Ensure only api/ folder is modified
-#             if echo "$CHANGED_FILES" | grep -v '^api/' | grep -q .; then
-#               echo "❌ API-service team can only modify api/ folder"
-#               exit 1
-#             fi
-#           fi
-
-
-
 name: Path-Based Merge Check
+
 on:
   pull_request:
     branches: [develop]
@@ -45,103 +8,43 @@ jobs:
   check-changes:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v3
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # Required to compare full history
       
-      - name: Check changed files
+      - name: Fetch base branch
+        run: git fetch origin develop
+
+      - name: Get changed files
+        id: files
         run: |
-          echo "🔍 Checking changed files for branch: ${{ github.head_ref }}"
-          
-          # Get changed files between develop and current branch
           CHANGED_FILES=$(git diff --name-only origin/develop...HEAD)
           echo "Changed files:"
           echo "$CHANGED_FILES"
-          
-          # Check if PR is from ai-agents team
-          if [[ "${{ github.head_ref }}" == feature/ai-agents/* ]]; then
-            echo "🤖 AI-agents branch detected"
-            # Check if any files outside ds/ are modified
-            INVALID_FILES=$(echo "$CHANGED_FILES" | grep -v '^ds/' | grep -v '^\.github/' || true)
-            if [[ -n "$INVALID_FILES" ]]; then
-              echo "❌ AI-agents team can only modify ds/ folder"
-              echo "Invalid files modified:"
-              echo "$INVALID_FILES"
-              exit 1
-            else
-              echo "✅ Only ds/ folder modified - OK"
-            fi
-          fi
-          
-          # Check if PR is from api-service team
-          if [[ "${{ github.head_ref }}" == feature/api-service/* ]]; then
-            echo "🚀 API-service branch detected"
-            # Check if any files outside api/ are modified
-            INVALID_FILES=$(echo "$CHANGED_FILES" | grep -v '^api/' | grep -v '^\.github/' || true)
-            if [[ -n "$INVALID_FILES" ]]; then
-              echo "❌ API-service team can only modify api/ folder"
-              echo "Invalid files modified:"
-              echo "$INVALID_FILES"
-              exit 1
-            else
-              echo "✅ Only api/ folder modified - OK"
-            fi
-          fi
-          
-          echo "✅ Path-based validation passed"
+          echo "changed_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
-  # This job will handle the actual selective merge
-  selective-merge:
-    runs-on: ubuntu-latest
-    needs: check-changes
-    if: github.event.action == 'closed' && github.event.pull_request.merged == true
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: Configure Git
+      - name: Enforce path rules
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-      
-      - name: Selective Merge
-        run: |
-          BRANCH_NAME="${{ github.head_ref }}"
-          echo "Processing branch: $BRANCH_NAME"
-          
-          # Determine target folder
-          if [[ "$BRANCH_NAME" == feature/ai-agents/* ]]; then
-            FOLDER="ds"
-            echo "🤖 Merging AI-agents changes to ds/ folder"
-          elif [[ "$BRANCH_NAME" == feature/api-service/* ]]; then
-            FOLDER="api"
-            echo "🚀 Merging API-service changes to api/ folder"
-          else
-            echo "❌ Unknown branch pattern"
-            exit 1
+          echo "Checking changes from branch: ${{ github.head_ref }}"
+          CHANGED_FILES="${{ steps.files.outputs.changed_files }}"
+
+          # Check ai-agents rules
+          if [[ "${{ github.head_ref }}" == feature/ai-agents/* ]]; then
+            echo "$CHANGED_FILES" | grep -v '^ds/' | grep -q . && {
+              echo "❌ AI-agents team can only modify files inside the 'ds/' folder."
+              exit 1
+            }
           fi
-          
-          # The merge has already happened, so we need to reset and re-apply only the target folder
-          # Get the merge commit
-          MERGE_COMMIT=$(git rev-parse HEAD)
-          PARENT1=$(git rev-parse HEAD^1)
-          PARENT2=$(git rev-parse HEAD^2)
-          
-          echo "Merge commit: $MERGE_COMMIT"
-          echo "Parent 1 (develop): $PARENT1"
-          echo "Parent 2 (feature): $PARENT2"
-          
-          # Reset to parent1 (develop before merge)
-          git reset --hard $PARENT1
-          
-          # Apply changes only from the target folder
-          git checkout $PARENT2 -- $FOLDER/
-          
-          # Commit the selective changes
-          git add $FOLDER/
-          git commit -m "Selective merge: $BRANCH_NAME -> $FOLDER/ only"
-          
-          # Push the changes
-          git push origin develop
+
+          # Check api-service rules
+          if [[ "${{ github.head_ref }}" == feature/api-service/* ]]; then
+            echo "$CHANGED_FILES" | grep -v '^api/' | grep -q . && {
+              echo "❌ API-service team can only modify files inside the 'api/' folder."
+              exit 1
+            }
+          fi
+
+          echo "✅ Path-based check passed."
