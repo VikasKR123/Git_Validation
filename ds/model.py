@@ -1,2 +1,1 @@
-
-print("model67")
+print("model678")
