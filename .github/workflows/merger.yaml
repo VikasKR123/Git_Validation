@@ -45,7 +45,136 @@
 #           echo "✅ Path-based merge check passed."
 
 
+# name: Path-Based Merge Check
+# on:
+#   pull_request:
+#     branches: [develop]
+#     types: [opened, synchronize, reopened]
+
+# jobs:
+#   check-changes:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v4
+#         with:
+#           fetch-depth: 0
+      
+#       - name: Check changed files
+#         run: |
+#           echo "🔍 Checking changed files for branch: ${{ github.head_ref }}"
+          
+#           # Get changed files between develop and current branch
+#           CHANGED_FILES=$(git diff --name-only origin/develop...HEAD)
+#           echo "Changed files:"
+#           echo "$CHANGED_FILES"
+          
+#           # Initialize validation flag
+#           VALIDATION_PASSED=true
+          
+#           # Check if PR is from ai-agents team
+#           if [[ "${{ github.head_ref }}" == feature/ai-agents/* ]]; then
+#             echo "🤖 AI-agents branch detected"
+#             # Check if any files outside ds/ are modified (exclude .github/ for workflow updates)
+#             INVALID_FILES=$(echo "$CHANGED_FILES" | grep -v '^ds/' | grep -v '^\.github/' | grep -v '^scripts/' || true)
+#             if [[ -n "$INVALID_FILES" ]]; then
+#               echo "❌ AI-agents team can only modify ds/ folder"
+#               echo "Invalid files modified:"
+#               echo "$INVALID_FILES"
+#               echo ""
+#               echo "📝 Please ensure your branch only modifies files in the ds/ folder"
+#               VALIDATION_PASSED=false
+#             else
+#               echo "✅ Only ds/ folder modified - OK"
+#             fi
+#           fi
+          
+#           # Check if PR is from api-service team
+#           if [[ "${{ github.head_ref }}" == feature/api-service/* ]]; then
+#             echo "🚀 API-service branch detected"
+#             # Check if any files outside api/ are modified (exclude .github/ for workflow updates)
+#             INVALID_FILES=$(echo "$CHANGED_FILES" | grep -v '^api/' | grep -v '^\.github/' | grep -v '^scripts/' || true)
+#             if [[ -n "$INVALID_FILES" ]]; then
+#               echo "❌ API-service team can only modify api/ folder"
+#               echo "Invalid files modified:"
+#               echo "$INVALID_FILES"
+#               echo ""
+#               echo "📝 Please ensure your branch only modifies files in the api/ folder"
+#               VALIDATION_PASSED=false
+#             else
+#               echo "✅ Only api/ folder modified - OK"
+#             fi
+#           fi
+          
+#           # Check for other branch patterns (allow them through)
+#           if [[ "${{ github.head_ref }}" != feature/ai-agents/* ]] && [[ "${{ github.head_ref }}" != feature/api-service/* ]]; then
+#             echo "ℹ️ Non-team specific branch - allowing all changes"
+#           fi
+          
+#           if [[ "$VALIDATION_PASSED" == "false" ]]; then
+#             echo ""
+#             echo "💡 To fix this:"
+#             echo "1. Move your changes to the correct folder (ds/ for ai-agents, api/ for api-service)"
+#             echo "2. Or create a new branch with the correct naming pattern"
+#             echo "3. Or use a different branch name if this is a cross-team change"
+#             exit 1
+#           fi
+          
+#           echo "✅ Path-based validation passed"
+      
+#       - name: Add merge instructions comment
+#         if: github.event.action == 'opened'
+#         uses: actions/github-script@v7
+#         with:
+#           script: |
+#             const branchName = context.payload.pull_request.head.ref;
+#             let mergeInstructions = '';
+            
+#             if (branchName.startsWith('feature/ai-agents/')) {
+#               mergeInstructions = `
+#             ## 🤖 AI-Agents Team Merge Instructions
+            
+#             This PR will merge changes **only from the \`ds/\` folder**.
+            
+#             **To merge this PR safely:**
+#             \`\`\`bash
+#             # Use the safe merge script
+#             ./scripts/safe-merge.sh ${branchName}
+#             git push origin develop
+#             \`\`\`
+            
+#             ✅ **Validation passed** - Only \`ds/\` folder will be affected.
+#               `;
+#             } else if (branchName.startsWith('feature/api-service/')) {
+#               mergeInstructions = `
+#             ## 🚀 API-Service Team Merge Instructions
+            
+#             This PR will merge changes **only from the \`api/\` folder**.
+            
+#             **To merge this PR safely:**
+#             \`\`\`bash
+#             # Use the safe merge script
+#             ./scripts/safe-merge.sh ${branchName}
+#             git push origin develop
+#             \`\`\`
+            
+#             ✅ **Validation passed** - Only \`api/\` folder will be affected.
+#               `;
+#             }
+            
+#             if (mergeInstructions) {
+#               github.rest.issues.createComment({
+#                 issue_number: context.issue.number,
+#                 owner: context.repo.owner,
+#                 repo: context.repo.repo,
+#                 body: mergeInstructions
+#               });
+#             }
+
+
+
+
 name: Path-Based Merge Check
+
 on:
   pull_request:
     branches: [develop]
@@ -169,3 +298,37 @@ jobs:
                 body: mergeInstructions
               });
             }
+
+  restricted-merge:
+    needs: check-changes
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Merge only specific folder from PR branch
+        run: |
+          PR_BRANCH="${{ github.head_ref }}"
+          echo "🔀 Selective merge from: $PR_BRANCH"
+
+          git remote add pr-origin https://github.com/${{ github.repository }}.git
+          git fetch pr-origin "$PR_BRANCH"
+
+          if [[ "$PR_BRANCH" == feature/ai-agents/* ]]; then
+            echo "🔍 Merging only 'ds/' folder"
+            git checkout pr-origin/"$PR_BRANCH" -- ds/
+          elif [[ "$PR_BRANCH" == feature/api-service/* ]]; then
+            echo "🔍 Merging only 'api/' folder"
+            git checkout pr-origin/"$PR_BRANCH" -- api/
+          else
+            echo "⚠️ Unknown team branch - skipping restricted merge"
+            exit 1
+          fi
+
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git commit -am "Restricted merge from $PR_BRANCH"
+          git push origin develop
